@@ -1,0 +1,77 @@
+# Example meta-db-sync configuration.
+#
+# ${VAR_NAME} and ${VAR_NAME:default} placeholders are resolved against environment variables
+# before this file is parsed, so secrets never need to live in the file itself.
+
+destination:
+  jdbcUrl: jdbc:postgresql://${META_DB_HOST:localhost}:${META_DB_PORT:5432}/${META_DB_NAME:metadb}
+  username: ${META_DB_USER}
+  password: ${META_DB_PASSWORD}
+  # Schema in the Postgres meta database that all target tables + control tables live in.
+  schema: ${META_DB_SCHEMA:public}
+
+sources:
+
+  # --- Oracle 19c example -----------------------------------------------------------------
+  - name: orders-oracle
+    type: ORACLE
+    jdbcUrl: jdbc:oracle:thin:@//${ORACLE_HOST}:${ORACLE_PORT:1521}/${ORACLE_SERVICE}
+    username: ${ORACLE_USER}
+    password: ${ORACLE_PASSWORD}
+    schedule:
+      # Standard 5-field UNIX cron: minute hour day-of-month month day-of-week.
+      cron: "*/15 * * * *"   # every 15 minutes
+    tables:
+      - sourceTable: SCOTT.ORDERS
+        targetTable: orders
+        primaryKeyColumns: [ORDER_ID]
+        # Incremental sync: only rows changed since the last successful run are pulled.
+        watermarkColumn: LAST_MODIFIED
+        fetchSize: 1000
+        columnMapping:
+          ORDER_ID: order_id
+          CUSTOMER_ID: customer_id
+          ORDER_DATE: order_date
+          STATUS: status
+        # Any source column not listed above (e.g. LAST_MODIFIED itself, internal audit columns)
+        # is still preserved verbatim inside the JSONB `data` column - no data loss.
+        includeUnmappedColumns: true
+        # Materialize a couple of frequently-queried fields as real, indexable Postgres columns
+        # in addition to the JSONB payload.
+        promotedColumns:
+          - field: customer_id
+            sqlType: BIGINT
+          - field: status
+            sqlType: TEXT
+
+      - sourceTable: SCOTT.CUSTOMERS
+        targetTable: customers
+        primaryKeyColumns: [CUSTOMER_ID]
+        watermarkColumn: LAST_MODIFIED
+        columnMapping:
+          CUSTOMER_ID: customer_id
+          CUSTOMER_NAME: name
+          EMAIL: email
+
+  # --- Progress OpenEdge 11+ example ------------------------------------------------------
+  # Requires the vendor JDBC driver installed separately - see docs/openedge-driver.md.
+  - name: inventory-openedge
+    type: OPENEDGE
+    jdbcUrl: jdbc:datadirect:openedge://${OPENEDGE_HOST}:${OPENEDGE_PORT:2510};databaseName=${OPENEDGE_DB}
+    username: ${OPENEDGE_USER}
+    password: ${OPENEDGE_PASSWORD}
+    schedule:
+      intervalSeconds: 900   # every 15 minutes; use this form when the source has no reliable
+                              # last-modified column to drive a cron+watermark schedule
+    tables:
+      - sourceTable: PUB.Item
+        targetTable: inventory_items
+        primaryKeyColumns: [ItemNum]
+        fetchSize: 500
+        columnMapping:
+          ItemNum: item_num
+          ItemName: item_name
+          OnHand: on_hand
+        promotedColumns:
+          - field: item_num
+            sqlType: BIGINT
