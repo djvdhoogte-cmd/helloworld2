@@ -1,0 +1,14 @@
+{
+  "name": "whitelabel-pwa",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @whitelabel/web",
+    "dev:api": "npm run dev -w @whitelabel/api",
+    "build": "npm run build -w @whitelabel/shared && npm run build -w @whitelabel/api && npm run build -w @whitelabel/web",
+    "typecheck": "npm run typecheck -w @whitelabel/shared && npm run typecheck -w @whitelabel/api && npm run typecheck -w @whitelabel/web"
+  }
+}

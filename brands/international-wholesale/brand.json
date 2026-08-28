@@ -1,0 +1,28 @@
+{
+  "id": "international-wholesale",
+  "displayName": "International Wholesale",
+  "domains": ["localhost", "wholesale.example.com"],
+  "locale": "en",
+  "theme": {
+    "primaryColor": "#0b3d91",
+    "secondaryColor": "#f2a900",
+    "backgroundColor": "#f5f7fb",
+    "textColor": "#1a1a2e",
+    "logoUrl": "/brand-assets/international-wholesale/assets/logo.svg",
+    "faviconUrl": "/brand-assets/international-wholesale/assets/favicon.svg",
+    "fontFamily": "'Segoe UI', system-ui, sans-serif"
+  },
+  "manifest": {
+    "shortName": "IW Wholesale",
+    "themeColor": "#0b3d91",
+    "backgroundColor": "#f5f7fb",
+    "icon192": "/brand-assets/international-wholesale/assets/icon-192.png",
+    "icon512": "/brand-assets/international-wholesale/assets/icon-512.png"
+  },
+  "features": {
+    "auth": true,
+    "processMapping": true,
+    "catalog": false,
+    "orders": false
+  }
+}
