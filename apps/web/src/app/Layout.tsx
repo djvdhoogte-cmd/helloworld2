@@ -12,6 +12,11 @@ export function Layout({ children }: { children: ReactNode }) {
       <header className="app-header">
         <img src={brand.theme.logoUrl} alt={brand.displayName} className="brand-logo" />
         <nav>
+          {hasFeature("catalog") && <Link to="/products">Catalog</Link>}
+          {hasFeature("customers") && <Link to="/customers">Customers</Link>}
+          {hasFeature("purchasing") && <Link to="/suppliers">Suppliers</Link>}
+          {hasFeature("purchasing") && <Link to="/purchase-orders">Purchase Orders</Link>}
+          {hasFeature("orders") && <Link to="/sales-orders">Sales Orders</Link>}
           {hasFeature("processMapping") && <Link to="/process-maps">Process Maps</Link>}
         </nav>
         <div className="header-actions">

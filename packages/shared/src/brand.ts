@@ -2,7 +2,9 @@ export type FeatureKey =
   | "auth"
   | "processMapping"
   | "catalog"
-  | "orders";
+  | "orders"
+  | "customers"
+  | "purchasing";
 
 export interface BrandTheme {
   primaryColor: string;

@@ -1,7 +1,7 @@
 {
   "id": "international-wholesale",
   "displayName": "International Wholesale",
-  "domains": ["localhost", "wholesale.example.com"],
+  "domains": ["localhost", "wholesaler.example.com"],
   "locale": "en",
   "theme": {
     "primaryColor": "#0b3d91",
@@ -22,7 +22,9 @@
   "features": {
     "auth": true,
     "processMapping": true,
-    "catalog": false,
-    "orders": false
+    "catalog": true,
+    "orders": true,
+    "customers": true,
+    "purchasing": true
   }
 }

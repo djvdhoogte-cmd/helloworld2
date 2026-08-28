@@ -44,15 +44,27 @@ brands/
 
 ### International Wholesale (first brand) — current features
 
+Served at `wholesaler.example.com` (and `localhost` in dev).
+
 - **Auth**: email/password registration and login (JWT), scoped per brand
   so the same email can exist independently under different brands.
 - **BPMN 2.0 process mapping**: authenticated users can create, edit and
   save business process diagrams (BPMN 2.0 XML) using an embedded
   [bpmn-js](https://bpmn.io) modeler, for mapping international wholesale
   operations. Diagrams are persisted per user via the API.
+- **Basic ERP modules**, all scoped per brand:
+  - **Catalog**: products with SKU, price and stock quantity.
+  - **Customers**: B2B accounts with contact info and pricing tier.
+  - **Suppliers & purchase orders**: supplier records; purchase orders
+    move `draft → submitted → received`, and receiving a purchase order
+    adds its line quantities back into product stock.
+  - **Sales orders**: orders against a customer and the catalog, moving
+    `draft → submitted → fulfilled`; fulfilling checks and decrements
+    stock, and either side can be `cancelled` before completion.
 
-Catalog and orders are modeled in the shared feature-flag schema but are
-disabled for this brand until built out.
+These ERP modules are plain feature flags (`catalog`, `customers`,
+`purchasing`, `orders`) — a brand without wholesale operations can leave
+them off and keep just auth + process mapping, or vice versa.
 
 ## Running locally
 
