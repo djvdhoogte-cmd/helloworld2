@@ -4,7 +4,8 @@ export type FeatureKey =
   | "catalog"
   | "orders"
   | "customers"
-  | "purchasing";
+  | "purchasing"
+  | "ediInventory";
 
 export interface BrandTheme {
   primaryColor: string;

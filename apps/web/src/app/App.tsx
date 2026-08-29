@@ -11,6 +11,12 @@ import { CustomersPage } from "../erp/CustomersPage.js";
 import { SuppliersPage } from "../erp/SuppliersPage.js";
 import { SalesOrdersPage } from "../erp/SalesOrdersPage.js";
 import { PurchaseOrdersPage } from "../erp/PurchaseOrdersPage.js";
+import { EdiLayout } from "../edi/EdiLayout.js";
+import { EdiMessagesPage } from "../edi/EdiMessagesPage.js";
+import { EdiMessageDetailPage } from "../edi/EdiMessageDetailPage.js";
+import { EdiDashboardPage } from "../edi/EdiDashboardPage.js";
+import { EdiExceptionsPage } from "../edi/EdiExceptionsPage.js";
+import { EdiPartnerFlowPage } from "../edi/EdiPartnerFlowPage.js";
 import { Layout } from "./Layout.js";
 
 function HomePage() {
@@ -105,6 +111,68 @@ function AppRoutes() {
               </ProtectedRoute>
             }
           />
+        )}
+        {hasFeature("ediInventory") && (
+          <>
+            <Route
+              path="/edi"
+              element={
+                <ProtectedRoute>
+                  <Navigate to="/edi/messages" replace />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/edi/messages"
+              element={
+                <ProtectedRoute>
+                  <EdiLayout>
+                    <EdiMessagesPage />
+                  </EdiLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/edi/messages/:id"
+              element={
+                <ProtectedRoute>
+                  <EdiLayout>
+                    <EdiMessageDetailPage />
+                  </EdiLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/edi/dashboard"
+              element={
+                <ProtectedRoute>
+                  <EdiLayout>
+                    <EdiDashboardPage />
+                  </EdiLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/edi/exceptions"
+              element={
+                <ProtectedRoute>
+                  <EdiLayout>
+                    <EdiExceptionsPage />
+                  </EdiLayout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/edi/partner-flow"
+              element={
+                <ProtectedRoute>
+                  <EdiLayout>
+                    <EdiPartnerFlowPage />
+                  </EdiLayout>
+                </ProtectedRoute>
+              }
+            />
+          </>
         )}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

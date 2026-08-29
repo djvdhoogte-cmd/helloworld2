@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Customer } from "@whitelabel/shared";
 import { customerApi } from "./api.js";
+import { parseEdiIdentifiers } from "./ediIdentifiers.js";
 
 export function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[] | null>(null);
@@ -9,6 +10,7 @@ export function CustomersPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [pricingTier, setPricingTier] = useState("standard");
+  const [ediIds, setEdiIds] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function refresh() {
@@ -25,11 +27,18 @@ export function CustomersPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await customerApi.create({ name, contactEmail: email, contactPhone: phone, pricingTier });
+      await customerApi.create({
+        name,
+        contactEmail: email,
+        contactPhone: phone,
+        pricingTier,
+        ediIdentifiers: parseEdiIdentifiers(ediIds),
+      });
       setName("");
       setEmail("");
       setPhone("");
       setPricingTier("standard");
+      setEdiIds("");
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create customer");
@@ -57,6 +66,11 @@ export function CustomersPage() {
           <option value="preferred">Preferred</option>
           <option value="volume">Volume</option>
         </select>
+        <input
+          placeholder="EDI IDs (comma separated)"
+          value={ediIds}
+          onChange={(e) => setEdiIds(e.target.value)}
+        />
         <button type="submit" disabled={submitting}>
           Add customer
         </button>
@@ -72,6 +86,7 @@ export function CustomersPage() {
               <th>Email</th>
               <th>Phone</th>
               <th>Tier</th>
+              <th>EDI IDs</th>
               <th></th>
             </tr>
           </thead>
@@ -82,6 +97,7 @@ export function CustomersPage() {
                 <td>{c.contactEmail}</td>
                 <td>{c.contactPhone}</td>
                 <td>{c.pricingTier}</td>
+                <td className="muted">{c.ediIdentifiers.join(", ") || "—"}</td>
                 <td>
                   <button className="link-button" onClick={() => handleDelete(c.id)}>
                     Delete

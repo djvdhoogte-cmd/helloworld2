@@ -5,6 +5,11 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireFeature } from "../middleware/requireFeature.js";
 import { suppliersCollection } from "../services/suppliers.js";
 
+function normalizeEdiIdentifiers(ids: string[] | undefined): string[] {
+  if (!ids) return [];
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
 export const supplierRouter = Router();
 supplierRouter.use(requireFeature("purchasing"));
 supplierRouter.use(requireAuth);
@@ -28,6 +33,7 @@ supplierRouter.post("/", (req, res) => {
     contactEmail: body.contactEmail?.trim() ?? "",
     contactPhone: body.contactPhone?.trim() ?? "",
     notes: body.notes?.trim() ?? "",
+    ediIdentifiers: normalizeEdiIdentifiers(body.ediIdentifiers),
     createdAt: now,
     updatedAt: now,
   };
@@ -63,6 +69,7 @@ supplierRouter.put("/:id", (req, res) => {
       contactEmail: body.contactEmail !== undefined ? body.contactEmail.trim() : s.contactEmail,
       contactPhone: body.contactPhone !== undefined ? body.contactPhone.trim() : s.contactPhone,
       notes: body.notes !== undefined ? body.notes.trim() : s.notes,
+      ediIdentifiers: body.ediIdentifiers !== undefined ? normalizeEdiIdentifiers(body.ediIdentifiers) : s.ediIdentifiers,
       updatedAt: new Date().toISOString(),
     }),
   );

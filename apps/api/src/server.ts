@@ -7,6 +7,7 @@ import { tenantResolver } from "./middleware/tenant.js";
 import { authRouter } from "./routes/auth.js";
 import { brandRouter } from "./routes/brand.js";
 import { customerRouter } from "./routes/customers.js";
+import { ediRouter } from "./routes/edi.js";
 import { processMapRouter } from "./routes/processMaps.js";
 import { productRouter } from "./routes/products.js";
 import { purchaseOrderRouter } from "./routes/purchaseOrders.js";
@@ -34,6 +35,7 @@ app.use("/api/customers", customerRouter);
 app.use("/api/suppliers", supplierRouter);
 app.use("/api/purchase-orders", purchaseOrderRouter);
 app.use("/api/sales-orders", salesOrderRouter);
+app.use("/api/edi", ediRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: `No route for ${req.method} ${req.path}` });

@@ -18,6 +18,7 @@ export function Layout({ children }: { children: ReactNode }) {
           {hasFeature("purchasing") && <Link to="/purchase-orders">Purchase Orders</Link>}
           {hasFeature("orders") && <Link to="/sales-orders">Sales Orders</Link>}
           {hasFeature("processMapping") && <Link to="/process-maps">Process Maps</Link>}
+          {hasFeature("ediInventory") && <Link to="/edi">EDI</Link>}
         </nav>
         <div className="header-actions">
           {user ? (

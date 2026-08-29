@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Supplier } from "@whitelabel/shared";
 import { supplierApi } from "./api.js";
+import { parseEdiIdentifiers } from "./ediIdentifiers.js";
 
 export function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[] | null>(null);
@@ -8,6 +9,7 @@ export function SuppliersPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [ediIds, setEdiIds] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function refresh() {
@@ -24,10 +26,16 @@ export function SuppliersPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await supplierApi.create({ name, contactEmail: email, contactPhone: phone });
+      await supplierApi.create({
+        name,
+        contactEmail: email,
+        contactPhone: phone,
+        ediIdentifiers: parseEdiIdentifiers(ediIds),
+      });
       setName("");
       setEmail("");
       setPhone("");
+      setEdiIds("");
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create supplier");
@@ -50,6 +58,11 @@ export function SuppliersPage() {
         <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <input
+          placeholder="EDI IDs (comma separated)"
+          value={ediIds}
+          onChange={(e) => setEdiIds(e.target.value)}
+        />
         <button type="submit" disabled={submitting}>
           Add supplier
         </button>
@@ -64,6 +77,7 @@ export function SuppliersPage() {
               <th>Name</th>
               <th>Email</th>
               <th>Phone</th>
+              <th>EDI IDs</th>
               <th></th>
             </tr>
           </thead>
@@ -73,6 +87,7 @@ export function SuppliersPage() {
                 <td>{s.name}</td>
                 <td>{s.contactEmail}</td>
                 <td>{s.contactPhone}</td>
+                <td className="muted">{s.ediIdentifiers.join(", ") || "—"}</td>
                 <td>
                   <button className="link-button" onClick={() => handleDelete(s.id)}>
                     Delete

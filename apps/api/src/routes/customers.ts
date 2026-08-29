@@ -5,6 +5,11 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireFeature } from "../middleware/requireFeature.js";
 import { customersCollection } from "../services/customers.js";
 
+function normalizeEdiIdentifiers(ids: string[] | undefined): string[] {
+  if (!ids) return [];
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
 export const customerRouter = Router();
 customerRouter.use(requireFeature("customers"));
 customerRouter.use(requireAuth);
@@ -29,6 +34,7 @@ customerRouter.post("/", (req, res) => {
     contactPhone: body.contactPhone?.trim() ?? "",
     pricingTier: body.pricingTier?.trim() ?? "standard",
     notes: body.notes?.trim() ?? "",
+    ediIdentifiers: normalizeEdiIdentifiers(body.ediIdentifiers),
     createdAt: now,
     updatedAt: now,
   };
@@ -65,6 +71,7 @@ customerRouter.put("/:id", (req, res) => {
       contactPhone: body.contactPhone !== undefined ? body.contactPhone.trim() : c.contactPhone,
       pricingTier: body.pricingTier?.trim() || c.pricingTier,
       notes: body.notes !== undefined ? body.notes.trim() : c.notes,
+      ediIdentifiers: body.ediIdentifiers !== undefined ? normalizeEdiIdentifiers(body.ediIdentifiers) : c.ediIdentifiers,
       updatedAt: new Date().toISOString(),
     }),
   );

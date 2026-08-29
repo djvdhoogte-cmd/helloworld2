@@ -36,6 +36,8 @@ export interface Customer {
   contactPhone: string;
   pricingTier: string;
   notes: string;
+  /** EDI party identifiers (e.g. GLN, DUNS) used to match this customer as sender/receiver on inbound/outbound EDI messages. */
+  ediIdentifiers: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -46,6 +48,7 @@ export interface CreateCustomerRequest {
   contactPhone?: string;
   pricingTier?: string;
   notes?: string;
+  ediIdentifiers?: string[];
 }
 
 export type UpdateCustomerRequest = Partial<CreateCustomerRequest>;
@@ -57,6 +60,8 @@ export interface Supplier {
   contactEmail: string;
   contactPhone: string;
   notes: string;
+  /** EDI party identifiers (e.g. GLN, DUNS) used to match this supplier as sender/receiver on inbound/outbound EDI messages. */
+  ediIdentifiers: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +71,7 @@ export interface CreateSupplierRequest {
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
+  ediIdentifiers?: string[];
 }
 
 export type UpdateSupplierRequest = Partial<CreateSupplierRequest>;

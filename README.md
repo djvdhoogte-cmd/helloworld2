@@ -66,6 +66,31 @@ These ERP modules are plain feature flags (`catalog`, `customers`,
 `purchasing`, `orders`) — a brand without wholesale operations can leave
 them off and keep just auth + process mapping, or vice versa.
 
+- **EDI flow analyser** (`ediInventory` flag): inventories inbound/outbound
+  EDI interchanges across both UN/EDIFACT and ANSI X12.
+  - **Parsing** (`apps/api/src/services/ediParser.ts`) reads just the
+    envelope — `UNB`/`UNH` for EDIFACT, `ISA`/`ST` for X12 — to extract
+    standard, message type, sender/receiver codes, control number and
+    message date. It doesn't decode every segment; the raw message is
+    always stored alongside the parsed metadata, and a message that fails
+    to parse is still inventoried with `parseStatus: "error"`.
+  - **Partner matching**: a Customer or Supplier can carry `ediIdentifiers`
+    (e.g. a GLN); an uploaded message's sender (inbound) or receiver
+    (outbound) code is matched against those to link the message to a
+    trading partner automatically.
+  - **Dashboard**: message volume broken down by type and by partner.
+  - **Exceptions**: messages that failed to parse, plus a heuristic flag
+    for an invoice-category message from a partner who has no
+    order-category message on file.
+  - **Partner flow**: a chronological timeline of every EDI message
+    matched to one customer or supplier, to see whether a business
+    process (e.g. order → response → despatch → invoice) actually
+    completed.
+  - The message-type catalog (`packages/shared/src/edi.ts`) covers common
+    order-to-cash and logistics types for both standards, but the
+    inventory accepts and stores any type code it encounters — the
+    catalog only drives friendlier labels and category grouping.
+
 ## Running locally
 
 Requires Node 20+.

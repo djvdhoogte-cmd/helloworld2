@@ -25,6 +25,7 @@
     "catalog": true,
     "orders": true,
     "customers": true,
-    "purchasing": true
+    "purchasing": true,
+    "ediInventory": true
   }
 }
