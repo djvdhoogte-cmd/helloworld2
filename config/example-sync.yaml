@@ -43,6 +43,16 @@ sources:
             sqlType: BIGINT
           - field: status
             sqlType: TEXT
+        # Incremental syncs only ever see inserted/updated rows, so they can't detect a row that
+        # was deleted at the source. This periodically does a cheap, primary-key-only scan of the
+        # full source table and reconciles away anything missing from it. Defaults to the same
+        # schedule as the sync above if `schedule` is omitted here; for a big table, give it its
+        # own slower schedule (as below) so the full PK scan doesn't run every 15 minutes.
+        deleteDetection:
+          enabled: true
+          strategy: SOFT   # SOFT stamps _deleted_at and keeps the row; HARD removes it outright
+          schedule:
+            cron: "0 3 * * *"   # once a day at 03:00
 
       - sourceTable: SCOTT.CUSTOMERS
         targetTable: customers

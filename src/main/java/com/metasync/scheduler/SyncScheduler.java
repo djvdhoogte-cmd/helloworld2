@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/** Runs each (source, table mapping) sync on its own configured cron or fixed-interval schedule. */
+/** Runs each (source, table mapping) sync - and, if enabled, its delete reconciliation - on its own configured schedule. */
 public class SyncScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(SyncScheduler.class);
@@ -47,33 +47,39 @@ public class SyncScheduler {
         for (SourceConfig source : sources) {
             SourceConnector connector = connectorsBySourceName.get(source.getName());
             for (TableMapping mapping : source.getTables()) {
-                scheduleMapping(source, connector, mapping);
+                scheduleJob(source.getSchedule(),
+                        () -> engine.runOnce(connector, mapping),
+                        "sync " + source.getName() + "/" + mapping.getSourceTable() + " -> " + mapping.getTargetTable());
+
+                if (mapping.getDeleteDetection().isEnabled()) {
+                    ScheduleConfig reconcileSchedule = mapping.getDeleteDetection().getSchedule();
+                    scheduleJob(reconcileSchedule != null ? reconcileSchedule : source.getSchedule(),
+                            () -> engine.reconcileDeletes(connector, mapping),
+                            "delete reconciliation " + source.getName() + "/" + mapping.getSourceTable() + " -> "
+                                    + mapping.getTargetTable());
+                }
             }
         }
     }
 
-    private void scheduleMapping(SourceConfig source, SourceConnector connector, TableMapping mapping) {
-        ScheduleConfig schedule = source.getSchedule();
+    private void scheduleJob(ScheduleConfig schedule, Runnable action, String description) {
         Runnable job = () -> {
             try {
-                engine.runOnce(connector, mapping);
+                action.run();
             } catch (RuntimeException e) {
-                // SyncEngine.runOnce already catches and records sync failures; this is a final
+                // SyncEngine already catches and records failures internally; this is a final
                 // backstop so one bad run never kills the scheduled executor's thread.
-                log.error("unexpected error running scheduled sync for {}/{}", source.getName(),
-                        mapping.getSourceTable(), e);
+                log.error("unexpected error running scheduled job: {}", description, e);
             }
         };
 
         if (schedule.isCronBased()) {
             Cron cron = cronParser.parse(schedule.getCron());
-            log.info("[{}] scheduling {} -> {} on cron '{}'", source.getName(), mapping.getSourceTable(),
-                    mapping.getTargetTable(), schedule.getCron());
+            log.info("scheduling {} on cron '{}'", description, schedule.getCron());
             scheduleNextCronRun(job, ExecutionTime.forCron(cron));
         } else {
             long intervalSeconds = schedule.getIntervalSeconds();
-            log.info("[{}] scheduling {} -> {} every {}s", source.getName(), mapping.getSourceTable(),
-                    mapping.getTargetTable(), intervalSeconds);
+            log.info("scheduling {} every {}s", description, intervalSeconds);
             executor.scheduleWithFixedDelay(job, 0, intervalSeconds, TimeUnit.SECONDS);
         }
     }

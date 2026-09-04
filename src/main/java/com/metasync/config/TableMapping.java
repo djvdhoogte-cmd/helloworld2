@@ -21,6 +21,8 @@ public class TableMapping {
 
     private List<PromotedColumn> promotedColumns = List.of();
 
+    private DeleteDetectionConfig deleteDetection = new DeleteDetectionConfig();
+
     public String getSourceTable() {
         return sourceTable;
     }
@@ -97,6 +99,14 @@ public class TableMapping {
         this.promotedColumns = promotedColumns;
     }
 
+    public DeleteDetectionConfig getDeleteDetection() {
+        return deleteDetection;
+    }
+
+    public void setDeleteDetection(DeleteDetectionConfig deleteDetection) {
+        this.deleteDetection = deleteDetection;
+    }
+
     public void validate(String context) {
         if (sourceTable == null || sourceTable.isBlank()) {
             throw new IllegalArgumentException("sourceTable is required for table mapping " + context);
@@ -109,6 +119,9 @@ public class TableMapping {
         }
         if (fetchSize <= 0) {
             throw new IllegalArgumentException("fetchSize must be positive for table mapping " + context);
+        }
+        if (deleteDetection != null) {
+            deleteDetection.validate(context);
         }
     }
 }

@@ -50,14 +50,19 @@ public final class RowTransformer {
 
         return new TransformedRow(
                 sourceSystem,
-                mapping.getTargetTable(),
-                sourcePrimaryKey(row, mapping.getPrimaryKeyColumns()),
+                mapping.getSourceTable(),
+                buildSourcePrimaryKey(row, mapping.getPrimaryKeyColumns()),
                 dataJson,
                 promotedValues,
                 Instant.now());
     }
 
-    private static String sourcePrimaryKey(ExtractedRow row, List<String> primaryKeyColumns) {
+    /**
+     * Joins a row's primary key column values into the same opaque string used as {@code _source_pk}
+     * in the target table, so a full primary-key-only scan (see delete reconciliation) produces
+     * values directly comparable to what's already stored.
+     */
+    public static String buildSourcePrimaryKey(ExtractedRow row, List<String> primaryKeyColumns) {
         StringBuilder pk = new StringBuilder();
         for (String column : primaryKeyColumns) {
             Object value = row.get(column);

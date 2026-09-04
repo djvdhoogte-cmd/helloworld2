@@ -69,6 +69,40 @@ public class SyncEngine {
         }
     }
 
+    /**
+     * Detects rows that have disappeared from the source since the last full scan and marks
+     * (SOFT) or removes (HARD) them in the target table, per {@code mapping.getDeleteDetection()}.
+     * Reads every live primary key from the source (a cheap, PK-only query) rather than relying on
+     * the incremental watermark, which by design never sees deletions.
+     */
+    public SyncResult reconcileDeletes(SourceConnector connector, TableMapping mapping) {
+        Instant startedAt = Instant.now();
+        String sourceName = connector.sourceName();
+
+        try {
+            writer.ensureTargetTable(mapping);
+            var currentSourcePks = connector.fetchAllPrimaryKeys(mapping);
+            long rowsDeleted = writer.reconcileDeletes(mapping, sourceName, currentSourcePks,
+                    mapping.getDeleteDetection().getStrategy());
+
+            Instant finishedAt = Instant.now();
+            SyncResult result = SyncResult.reconcileSuccess(sourceName, mapping.getSourceTable(),
+                    mapping.getTargetTable(), rowsDeleted, startedAt, finishedAt);
+            writer.recordSyncRun(result);
+            log.info("[{}] delete reconciliation for {} -> {}: {} row(s) in {}", sourceName,
+                    mapping.getSourceTable(), mapping.getTargetTable(), rowsDeleted, result.duration());
+            return result;
+        } catch (Exception e) {
+            Instant finishedAt = Instant.now();
+            SyncResult result = SyncResult.reconcileFailure(sourceName, mapping.getSourceTable(),
+                    mapping.getTargetTable(), startedAt, finishedAt, describeError(e));
+            writer.recordSyncRun(result);
+            log.error("[{}] delete reconciliation failed for {} -> {}", sourceName, mapping.getSourceTable(),
+                    mapping.getTargetTable(), e);
+            return result;
+        }
+    }
+
     private static String describeError(Exception e) {
         String message = e.getMessage();
         return message != null ? message : e.getClass().getSimpleName();

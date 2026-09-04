@@ -20,7 +20,8 @@ sources - Progress OpenEdge 11+ and Oracle 19c - alongside anything else reachab
 Each source table is mapped, on its own schedule, into a target table in Postgres. Every target
 table gets:
 
-- `_source_system`, `_source_table`, `_source_pk`, `_synced_at` - provenance/audit columns
+- `_source_system`, `_source_table`, `_source_pk`, `_synced_at`, `_deleted_at` - provenance/audit
+  columns (`_deleted_at` is set by delete reconciliation - see below - and is otherwise `NULL`)
 - `data JSONB` - the full mapped row, so heterogeneous source schemas are captured without loss
 - optional **promoted columns** - specific fields also materialized as real, typed, indexable
   Postgres columns for fast querying
@@ -30,6 +31,22 @@ mappings with a `watermarkColumn` (e.g. a last-modified timestamp) sync incremen
 that changed since the last successful run are pulled, and the watermark is persisted in a
 `sync_state` control table. Every run - success or failure - is recorded in `sync_runs` for
 observability.
+
+### Delete detection
+
+Incremental syncs only ever see inserted/updated rows - a row deleted at the source simply never
+shows up again, so by itself the sync above can't tell the meta database it's gone. Setting
+`deleteDetection.enabled: true` on a table mapping adds a second, independently-scheduled job that
+does a full but cheap (primary-key-only) scan of the source table and reconciles away anything
+present in the target but no longer present in the source:
+
+- `strategy: SOFT` (default) stamps `_deleted_at` and keeps the row (recommended - preserves history)
+- `strategy: HARD` removes the row outright
+
+Reconciliation runs on its own `schedule` if given, or falls back to the table's regular sync
+schedule otherwise. Because it still has to read every primary key in the source table, give it a
+slower, off-peak schedule (e.g. once daily) for large tables rather than leaving it on a
+15-minute cadence. See [`config/example-sync.yaml`](config/example-sync.yaml) for a worked example.
 
 ## Requirements
 

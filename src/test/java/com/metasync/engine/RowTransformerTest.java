@@ -33,7 +33,7 @@ class RowTransformerTest {
         TransformedRow transformed = RowTransformer.transform(row, mapping, "orders-oracle");
 
         assertEquals("orders-oracle", transformed.sourceSystem());
-        assertEquals("orders", transformed.sourceTable());
+        assertEquals("SCOTT.ORDERS", transformed.sourceTable());
         assertEquals("42", transformed.sourcePk());
         assertEquals("SHIPPED", transformed.promotedValues().get("status"));
 

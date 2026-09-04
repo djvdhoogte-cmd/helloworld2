@@ -95,6 +95,11 @@ public class MetaSyncCli implements Callable<Integer> {
             for (TableMapping mapping : source.getTables()) {
                 SyncResult result = engine.runOnce(connector, mapping);
                 allSucceeded = allSucceeded && result.success();
+
+                if (mapping.getDeleteDetection().isEnabled()) {
+                    SyncResult reconcileResult = engine.reconcileDeletes(connector, mapping);
+                    allSucceeded = allSucceeded && reconcileResult.success();
+                }
             }
         }
         return allSucceeded ? 0 : 1;

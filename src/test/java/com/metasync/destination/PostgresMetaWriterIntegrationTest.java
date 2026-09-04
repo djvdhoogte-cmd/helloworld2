@@ -1,5 +1,6 @@
 package com.metasync.destination;
 
+import com.metasync.config.DeleteStrategy;
 import com.metasync.config.PromotedColumn;
 import com.metasync.config.TableMapping;
 import com.metasync.engine.RowTransformer;
@@ -19,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -108,6 +110,81 @@ class PostgresMetaWriterIntegrationTest {
 
         writer.updateWatermark("orders-oracle", "orders", "200");
         assertEquals(Optional.of("200"), writer.getWatermark("orders-oracle", "orders"));
+    }
+
+    @Test
+    void reconcileDeletesSoftMarksMissingRowsAndScopesByBothSourceSystemAndTable() throws Exception {
+        TableMapping mapping = new TableMapping();
+        mapping.setSourceTable("SCOTT.ORDERS");
+        mapping.setTargetTable("orders");
+        mapping.setPrimaryKeyColumns(List.of("order_id"));
+        mapping.setColumnMapping(Map.of("order_id", "order_id"));
+
+        // A second mapping feeding the SAME target table from a DIFFERENT source table, to prove
+        // reconciliation never touches rows it doesn't own.
+        TableMapping otherMapping = new TableMapping();
+        otherMapping.setSourceTable("LEGACY.ORDERS");
+        otherMapping.setTargetTable("orders");
+        otherMapping.setPrimaryKeyColumns(List.of("order_id"));
+        otherMapping.setColumnMapping(Map.of("order_id", "order_id"));
+
+        writer.ensureControlTablesExist();
+        writer.ensureTargetTable(mapping);
+
+        writer.upsertBatch(mapping, List.of(
+                transform(mapping, Map.of("order_id", 1L)),
+                transform(mapping, Map.of("order_id", 2L))));
+        writer.upsertBatch(otherMapping, List.of(
+                RowTransformer.transform(new ExtractedRow(new LinkedHashMap<>(Map.of("order_id", 1L))),
+                        otherMapping, "orders-oracle")));
+
+        // Order 1 no longer exists at the source; order 2 still does.
+        long deleted = writer.reconcileDeletes(mapping, "orders-oracle", Set.of("2"), DeleteStrategy.SOFT);
+        assertEquals(1, deleted);
+
+        try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT _source_pk, _source_table, _deleted_at FROM " + schema
+                     + ".orders ORDER BY _source_pk, _source_table")) {
+            // otherMapping's order 1 (LEGACY.ORDERS) must survive untouched.
+            assertTrue(rs.next());
+            assertEquals("1", rs.getString(1));
+            assertEquals("LEGACY.ORDERS", rs.getString(2));
+            assertEquals(null, rs.getTimestamp(3));
+
+            // mapping's own order 1 (SCOTT.ORDERS) is soft-deleted.
+            assertTrue(rs.next());
+            assertEquals("1", rs.getString(1));
+            assertEquals("SCOTT.ORDERS", rs.getString(2));
+            assertTrue(rs.getTimestamp(3) != null);
+
+            // order 2 is still active.
+            assertTrue(rs.next());
+            assertEquals("2", rs.getString(1));
+            assertEquals(null, rs.getTimestamp(3));
+        }
+    }
+
+    @Test
+    void reconcileDeletesHardRemovesMissingRows() throws Exception {
+        TableMapping mapping = new TableMapping();
+        mapping.setSourceTable("SCOTT.ORDERS");
+        mapping.setTargetTable("orders");
+        mapping.setPrimaryKeyColumns(List.of("order_id"));
+        mapping.setColumnMapping(Map.of("order_id", "order_id"));
+
+        writer.ensureControlTablesExist();
+        writer.ensureTargetTable(mapping);
+        writer.upsertBatch(mapping, List.of(transform(mapping, Map.of("order_id", 1L))));
+
+        long deleted = writer.reconcileDeletes(mapping, "orders-oracle", Set.of(), DeleteStrategy.HARD);
+        assertEquals(1, deleted);
+
+        try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT count(*) FROM " + schema + ".orders WHERE _source_pk = '1'")) {
+            assertTrue(rs.next());
+            assertEquals(0, rs.getInt(1));
+        }
     }
 
     private static TransformedRow transform(TableMapping mapping, Map<String, Object> columns) {

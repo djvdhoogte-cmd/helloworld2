@@ -1,5 +1,6 @@
 package com.metasync.destination;
 
+import com.metasync.config.DeleteStrategy;
 import com.metasync.config.PromotedColumn;
 import com.metasync.config.TableMapping;
 import com.metasync.engine.SyncResult;
@@ -8,14 +9,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Owns the PostgreSQL "meta database": the unified tables mapped data is upserted into, plus a
@@ -59,6 +63,11 @@ public class PostgresMetaWriter {
                 );
                 """.formatted(schema);
         execute(ddl);
+        // Added after the initial release; migrated in separately so upgrades don't need a fresh schema.
+        execute("ALTER TABLE %1$s.sync_runs ADD COLUMN IF NOT EXISTS rows_deleted BIGINT NOT NULL DEFAULT 0"
+                .formatted(schema));
+        execute("ALTER TABLE %1$s.sync_runs ADD COLUMN IF NOT EXISTS run_type TEXT NOT NULL DEFAULT 'SYNC'"
+                .formatted(schema));
     }
 
     public void ensureTargetTable(TableMapping mapping) {
@@ -70,12 +79,52 @@ public class PostgresMetaWriter {
                     _source_table   TEXT NOT NULL,
                     _source_pk      TEXT NOT NULL,
                     _synced_at      TIMESTAMP WITH TIME ZONE NOT NULL,
+                    _deleted_at     TIMESTAMP WITH TIME ZONE,
                     data            JSONB NOT NULL,
-                    PRIMARY KEY (_source_system, _source_pk)
+                    PRIMARY KEY (_source_system, _source_table, _source_pk)
                 );
                 CREATE INDEX IF NOT EXISTS %2$s_synced_at_idx ON %1$s.%2$s (_synced_at);
                 """.formatted(schema, targetTable);
         execute(ddl);
+        // Added after the initial release; migrated in separately so upgrades don't need to drop the table.
+        execute("ALTER TABLE %1$s.%2$s ADD COLUMN IF NOT EXISTS _deleted_at TIMESTAMP WITH TIME ZONE"
+                .formatted(schema, targetTable));
+        // A plain (non-partial) index: Postgres's partial-index syntax ("... WHERE _deleted_at IS
+        // NULL") isn't portable to every JDBC target this DDL runs against in tests, and a B-tree
+        // index over these three columns still serves the exact WHERE clause reconcileDeletes uses.
+        execute("CREATE INDEX IF NOT EXISTS %2$s_active_idx ON %1$s.%2$s (_source_system, _source_table, _deleted_at)"
+                .formatted(schema, targetTable));
+        // _source_pk is only unique WITHIN one source table, so a 2-column (_source_system, _source_pk)
+        // primary key lets two different source tables feeding the same target collide on matching PK
+        // values. Upgrades an older table created with that narrower key; a no-op once already widened.
+        // Run as a single statement (not through execute(), which splits on ';' and would shred this
+        // plpgsql body) since schema/targetTable are already-validated identifiers, safely interpolated
+        // directly, while the constraint name - genuinely dynamic, read back from the catalog - is
+        // quoted at runtime via quote_ident() rather than string-concatenated. Plpgsql DO blocks and
+        // information_schema.key_column_usage aren't portable, so this only runs against real Postgres
+        // (test doubles like H2 exercise the DDL shape above, not this catalog-introspecting migration).
+        if (isRealPostgres()) {
+            executeRaw("""
+                DO $$
+                DECLARE
+                    old_constraint TEXT;
+                BEGIN
+                    SELECT tc.constraint_name INTO old_constraint
+                    FROM information_schema.table_constraints tc
+                    WHERE tc.table_schema = '%1$s' AND tc.table_name = '%2$s' AND tc.constraint_type = 'PRIMARY KEY'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM information_schema.key_column_usage kcu
+                          WHERE kcu.constraint_schema = tc.constraint_schema
+                            AND kcu.constraint_name = tc.constraint_name
+                            AND kcu.column_name = '_source_table'
+                      );
+                    IF old_constraint IS NOT NULL THEN
+                        EXECUTE 'ALTER TABLE %1$s.%2$s DROP CONSTRAINT ' || quote_ident(old_constraint);
+                        EXECUTE 'ALTER TABLE %1$s.%2$s ADD PRIMARY KEY (_source_system, _source_table, _source_pk)';
+                    END IF;
+                END $$;
+                """.formatted(schema, targetTable));
+        }
 
         for (PromotedColumn promoted : mapping.getPromotedColumns()) {
             String field = IdentifierValidator.validateIdentifier(promoted.getField(),
@@ -120,7 +169,7 @@ public class PostgresMetaWriter {
         }
     }
 
-    /** Upserts a batch of already-transformed rows, keyed by (source_system, source_pk). */
+    /** Upserts a batch of already-transformed rows, keyed by (source_system, source_table, source_pk). */
     public void upsertBatch(TableMapping mapping, List<TransformedRow> rows) {
         if (rows.isEmpty()) {
             return;
@@ -137,13 +186,16 @@ public class PostgresMetaWriter {
             valuePlaceholders.add("?");
         }
 
+        // Clearing _deleted_at here matters: a row a previous delete-reconciliation pass marked
+        // gone should come back to "active" the moment the source produces it again.
         StringBuilder updateClause = new StringBuilder(
-                "_source_table = EXCLUDED._source_table, _synced_at = EXCLUDED._synced_at, data = EXCLUDED.data");
+                "_synced_at = EXCLUDED._synced_at, _deleted_at = NULL, data = EXCLUDED.data");
         for (PromotedColumn promoted : promotedColumns) {
             updateClause.append(", ").append(promoted.getField()).append(" = EXCLUDED.").append(promoted.getField());
         }
 
-        String sql = "INSERT INTO %1$s.%2$s (%3$s) VALUES (%4$s) ON CONFLICT (_source_system, _source_pk) DO UPDATE SET %5$s"
+        String sql = ("INSERT INTO %1$s.%2$s (%3$s) VALUES (%4$s) "
+                + "ON CONFLICT (_source_system, _source_table, _source_pk) DO UPDATE SET %5$s")
                 .formatted(schema, targetTable, String.join(", ", insertColumns),
                         String.join(", ", valuePlaceholders), updateClause);
 
@@ -174,11 +226,65 @@ public class PostgresMetaWriter {
         log.debug("upserted {} row(s) into {}.{}", rows.size(), schema, targetTable);
     }
 
+    /**
+     * Marks (SOFT) or removes (HARD) rows in {@code mapping.getTargetTable()} that came from
+     * {@code sourceSystem}/{@code mapping.getSourceTable()} but whose primary key is no longer in
+     * {@code currentSourcePks}. Scoped to this exact (source_system, source_table) pair so it never
+     * touches rows a *different* mapping contributed into the same target table.
+     *
+     * @return the number of rows marked/removed
+     */
+    public long reconcileDeletes(TableMapping mapping, String sourceSystem, Set<String> currentSourcePks,
+            DeleteStrategy strategy) {
+        String targetTable = IdentifierValidator.validateIdentifier(mapping.getTargetTable(), "targetTable");
+
+        Set<String> staleKeys = new HashSet<>();
+        String selectSql = ("SELECT _source_pk FROM %1$s.%2$s "
+                + "WHERE _source_system = ? AND _source_table = ? AND _deleted_at IS NULL").formatted(schema,
+                targetTable);
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(selectSql)) {
+            ps.setString(1, sourceSystem);
+            ps.setString(2, mapping.getSourceTable());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    staleKeys.add(rs.getString(1));
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to read active primary keys for " + targetTable, e);
+        }
+        staleKeys.removeAll(currentSourcePks);
+        if (staleKeys.isEmpty()) {
+            return 0;
+        }
+
+        String verb = strategy == DeleteStrategy.HARD
+                ? "DELETE FROM %1$s.%2$s"
+                : "UPDATE %1$s.%2$s SET _deleted_at = now()";
+        String sql = (verb + " WHERE _source_system = ? AND _source_table = ? AND _source_pk = ANY(?)")
+                .formatted(schema, targetTable);
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, sourceSystem);
+            ps.setString(2, mapping.getSourceTable());
+            Array pkArray = conn.createArrayOf("text", staleKeys.toArray());
+            ps.setArray(3, pkArray);
+            int affected = ps.executeUpdate();
+            log.info("delete reconciliation ({}) affected {} row(s) in {}.{}", strategy, affected, schema,
+                    targetTable);
+            return affected;
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to reconcile deletes for " + targetTable, e);
+        }
+    }
+
     public void recordSyncRun(SyncResult result) {
         String sql = """
                 INSERT INTO %1$s.sync_runs
-                    (source_name, source_table, target_table, started_at, finished_at, success, rows_processed, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (source_name, source_table, target_table, started_at, finished_at, success, rows_processed,
+                     rows_deleted, run_type, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.formatted(schema);
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -189,10 +295,20 @@ public class PostgresMetaWriter {
             ps.setTimestamp(5, Timestamp.from(result.finishedAt()));
             ps.setBoolean(6, result.success());
             ps.setLong(7, result.rowsProcessed());
-            ps.setString(8, result.errorMessage());
+            ps.setLong(8, result.rowsDeleted());
+            ps.setString(9, result.runType());
+            ps.setString(10, result.errorMessage());
             ps.executeUpdate();
         } catch (SQLException e) {
             log.error("failed to record sync run for {}/{}", result.sourceName(), result.sourceTable(), e);
+        }
+    }
+
+    private boolean isRealPostgres() {
+        try (Connection conn = dataSource.getConnection()) {
+            return "PostgreSQL".equals(conn.getMetaData().getDatabaseProductName());
+        } catch (SQLException e) {
+            return false;
         }
     }
 
@@ -204,6 +320,16 @@ public class PostgresMetaWriter {
                     statement.execute(trimmed);
                 }
             }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to execute DDL: " + sql, e);
+        }
+    }
+
+    /** Like {@link #execute}, but runs {@code sql} as a single statement rather than splitting on ';'
+     * - required for a plpgsql DO block, whose body legitimately contains its own semicolons. */
+    private void executeRaw(String sql) {
+        try (Connection conn = dataSource.getConnection(); var statement = conn.createStatement()) {
+            statement.execute(sql);
         } catch (SQLException e) {
             throw new RuntimeException("failed to execute DDL: " + sql, e);
         }

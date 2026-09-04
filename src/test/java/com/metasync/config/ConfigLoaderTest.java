@@ -36,6 +36,11 @@ class ConfigLoaderTest {
                     promotedColumns:
                       - field: status
                         sqlType: TEXT
+                    deleteDetection:
+                      enabled: true
+                      strategy: SOFT
+                      schedule:
+                        cron: "0 3 * * *"
               - name: inventory-openedge
                 type: OPENEDGE
                 jdbcUrl: jdbc:datadirect:openedge://oe-host:2510;databaseName=sports2000
@@ -72,11 +77,39 @@ class ConfigLoaderTest {
         assertTrue(ordersMapping.isIncremental());
         assertEquals(Map.of("ORDER_ID", "order_id", "STATUS", "status"), ordersMapping.getColumnMapping());
         assertEquals(1, ordersMapping.getPromotedColumns().size());
+        assertTrue(ordersMapping.getDeleteDetection().isEnabled());
+        assertEquals(DeleteStrategy.SOFT, ordersMapping.getDeleteDetection().getStrategy());
+        assertEquals("0 3 * * *", ordersMapping.getDeleteDetection().getSchedule().getCron());
 
         SourceConfig openEdge = config.getSources().get(1);
         assertEquals(SourceType.OPENEDGE, openEdge.getType());
         assertEquals(900L, openEdge.getSchedule().getIntervalSeconds());
         assertTrue(!openEdge.getTables().get(0).isIncremental());
+        assertTrue(!openEdge.getTables().get(0).getDeleteDetection().isEnabled());
+    }
+
+    @Test
+    void invalidDeleteDetectionScheduleFailsValidation() {
+        ConfigLoader loader = new ConfigLoader(name -> "x");
+        String badYaml = """
+                destination:
+                  jdbcUrl: jdbc:postgresql://x:5432/metadb
+                  username: u
+                sources:
+                  - name: src
+                    type: GENERIC
+                    jdbcUrl: jdbc:postgresql://x:5432/db
+                    schedule:
+                      intervalSeconds: 60
+                    tables:
+                      - sourceTable: t
+                        targetTable: t
+                        primaryKeyColumns: [id]
+                        deleteDetection:
+                          enabled: true
+                          schedule: {}
+                """;
+        assertThrows(IllegalArgumentException.class, () -> loader.loadFromString(badYaml));
     }
 
     @Test
